@@ -9,12 +9,11 @@ A Rust project to solve puzzles in the game LYNE.
 3. Input the puzzle you want to solve, using lowercase rgb to represent red, green, and blue nodes, using uppercase RGB to represent red, green, and blue start/end points, using . to represent a space, and using numbers to represent points that can be passed through multiple times.
 
 For example, B 15 input as follow:
-```
-R2B
-2Gr
-gbR
-.GB
-```
+
+| | |
+| ------------- | ------------- |
+| <img src="https://user-images.githubusercontent.com/17942323/216759636-00badbf1-0a8e-45ed-a4ee-840f6a0c9fd5.png" width="100">  | <pre>R2B<br>2Gr<br>gbR<br>.GB</pre>  |
+
 
 ## Future Plans
 

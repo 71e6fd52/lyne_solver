@@ -1,0 +1,17 @@
+[package]
+name = "lyne"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[profile.release]
+debug = true
+panic = 'abort'
+
+[dependencies]
+iter_tools = "0.1.4"
+log = "0.4.17"
+pretty_env_logger = "0.4.0"
+strum = "0.24.1"
+strum_macros = "0.24.3"

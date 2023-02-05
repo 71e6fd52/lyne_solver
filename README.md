@@ -1,6 +1,6 @@
 # LYNE Solver
 
-A Rust project to solve puzzles in the game LYNE.
+A Rust project to solve puzzles in the game [LYNE](https://www.lynegame.com/), using [Backtracking algorithms](https://en.wikipedia.org/wiki/Backtracking).
 
 ## Usage
 
@@ -10,9 +10,9 @@ A Rust project to solve puzzles in the game LYNE.
 
 For example, B 15 input as follow:
 
-| | |
-| ------------- | ------------- |
-| <img src="https://user-images.githubusercontent.com/17942323/216759636-00badbf1-0a8e-45ed-a4ee-840f6a0c9fd5.png" width="100">  | <pre>R2B<br>2Gr<br>gbR<br>.GB</pre>  |
+|                                                                                                                               |                                     |
+| ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| <img src="https://user-images.githubusercontent.com/17942323/216759636-00badbf1-0a8e-45ed-a4ee-840f6a0c9fd5.png" width="100"> | <pre>R2B<br>2Gr<br>gbR<br>.GB</pre> |
 
 
 ## Future Plans

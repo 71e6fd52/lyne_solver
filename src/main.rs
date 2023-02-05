@@ -4,6 +4,8 @@ use std::io;
 use strum::IntoEnumIterator;
 use strum_macros::{Display, EnumIter};
 
+type Point = (i32, i32);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display)]
 pub enum Color {
     Red,
@@ -21,6 +23,7 @@ impl Color {
     }
 }
 
+// Puzzle nodes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Symbol {
     R,
@@ -70,18 +73,8 @@ impl Symbol {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Display, EnumIter)]
-pub enum Direction {
-    Right,
-    DownRight,
-    Down,
-    DownLeft,
-    Left,
-    UpLeft,
-    Up,
-    UpRight,
-}
-
+// Only store these 4 directions
+// The other 4 are just the reverse of these
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DirectionInner {
     Right = 0,
@@ -100,6 +93,18 @@ impl From<u8> for DirectionInner {
             _ => panic!("invalid direction: {}", d),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display, EnumIter)]
+pub enum Direction {
+    Right,
+    DownRight,
+    Down,
+    DownLeft,
+    Left,
+    UpLeft,
+    Up,
+    UpRight,
 }
 
 impl From<DirectionInner> for Direction {
@@ -127,21 +132,16 @@ impl Direction {
         }
     }
 
-    pub fn store(self, x: usize, y: usize) -> (usize, usize, DirectionInner) {
+    pub fn store(self, pos: Point) -> (Point, DirectionInner) {
         let (direction_inner, reverse) = self.to_inner();
         if reverse {
-            let offset = self.offset();
-            (
-                (x as isize + offset.0) as usize,
-                (y as isize + offset.1) as usize,
-                direction_inner,
-            )
+            (self.apply_offset(pos), direction_inner)
         } else {
-            (x, y, direction_inner)
+            (pos, direction_inner)
         }
     }
 
-    pub fn offset(self) -> (isize, isize) {
+    pub fn offset(self) -> (i32, i32) {
         match self {
             Direction::Up => (0, -1),
             Direction::UpRight => (1, -1),
@@ -154,17 +154,22 @@ impl Direction {
         }
     }
 
+    pub fn apply_offset(self, (x, y): Point) -> Point {
+        let offset = self.offset();
+        (x + offset.0, y + offset.1)
+    }
+
     // Beveled edges cannot cross each other
-    pub fn may_conflict(self, x: usize, y: usize) -> Option<(usize, usize, DirectionInner)> {
+    pub fn may_conflict(self, (x, y): Point) -> Option<(Point, DirectionInner)> {
         match self {
             Direction::Up => None,
             Direction::Down => None,
             Direction::Left => None,
             Direction::Right => None,
-            Direction::UpRight => Some((x, y - 1, DirectionInner::DownRight)),
-            Direction::UpLeft => Some((x, y - 1, DirectionInner::DownLeft)),
-            Direction::DownRight => Some((x + 1, y, DirectionInner::DownLeft)),
-            Direction::DownLeft => Some((x - 1, y, DirectionInner::DownRight)),
+            Direction::UpRight => Some(((x, y - 1), DirectionInner::DownRight)),
+            Direction::UpLeft => Some(((x, y - 1), DirectionInner::DownLeft)),
+            Direction::DownRight => Some(((x + 1, y), DirectionInner::DownLeft)),
+            Direction::DownLeft => Some(((x - 1, y), DirectionInner::DownRight)),
         }
     }
 }
@@ -172,45 +177,52 @@ impl Direction {
 #[derive(Debug, Clone)]
 struct Board {
     board: Vec<(Symbol, u8)>, // simluates a 2d array
-    sides: Vec<[Option<Color>; 4]>,
-    result: Vec<(usize, usize, Direction, Color)>,
     width: usize,
     height: usize,
+    lines: Vec<[Option<Color>; 4]>, // store the currect state of conneced lines, index by start position of the line
+    result: Vec<(Point, Direction, Color)>,
 }
 
 impl Board {
+    // convert a point to a index
     #[inline]
-    fn index(&self, x: usize, y: usize) -> usize {
-        y * self.width + x
+    fn index(&self, (x, y): Point) -> usize {
+        (y * self.width as i32 + x) as usize
     }
 
-    fn add_side(&mut self, x: usize, y: usize, direction: Direction, color: Color) -> bool {
-        trace!("try add side ({}, {}, {:?}, {:?})", x, y, direction, color);
+    // convert a index to a point
+    #[inline]
+    fn pos(&self, index: usize) -> Point {
+        ((index % self.width) as i32, (index / self.width) as i32)
+    }
+
+    // add a connected line to the board if it is legal
+    //
+    // return whether the line is legal
+    fn add_line(&mut self, start_pos: Point, direction: Direction, color: Color) -> bool {
+        trace!("try add line ({:?}, {}, {})", start_pos, direction, color);
         // println!("{:?}", self.board);
-        let offset = direction.offset();
-        if x as isize + offset.0 < 0
-            || x as isize + offset.0 >= self.width as isize
-            || y as isize + offset.1 < 0
-            || y as isize + offset.1 >= self.height as isize
+        let offset_pos = direction.apply_offset(start_pos);
+        if offset_pos.0 < 0
+            || offset_pos.0 >= self.width as i32
+            || offset_pos.1 < 0
+            || offset_pos.1 >= self.height as i32
         {
-            // side is out of bounds
+            // line is out of bounds
             return false;
         }
 
-        if let Some((xc, yc, direction_inner)) = direction.may_conflict(x, y) {
-            if self.sides[self.index(xc, yc)][direction_inner as usize].is_some() {
+        if let Some((conflict_point, direction_inner)) = direction.may_conflict(start_pos) {
+            if self.lines[self.index(conflict_point)][direction_inner as usize].is_some() {
                 // crossing with the other beveled edge
                 return false;
             }
         }
-        let offset_index = self.index(
-            (x as isize + offset.0) as usize,
-            (y as isize + offset.1) as usize,
-        );
+        let offset_index = self.index(offset_pos);
         let offset_point = self.board[offset_index];
         if let Symbol::White(n) = offset_point.0 {
             if offset_point.1 + 1 > n {
-                // point reach to max number of sides
+                // point reach to max number of lines
                 return false;
             }
         } else if offset_point.0 == Symbol::color(color)
@@ -224,8 +236,8 @@ impl Board {
             // color mismatch
             return false;
         }
-        let (xs, ys, direction_inner) = direction.store(x, y);
-        let index = self.index(xs, ys);
+        let (store_pos, direction_inner) = direction.store(start_pos);
+        let index = self.index(store_pos);
         let point = self.board[index];
         if !(point.0 == Symbol::color(color)
             || point.0 == Symbol::color_end(color)
@@ -234,32 +246,29 @@ impl Board {
             // color mismatch
             return false;
         }
-        let side = self.sides[index].get_mut(direction_inner as usize).unwrap();
-        if side.is_some() {
-            // side already exists
+        let line = self.lines[index].get_mut(direction_inner as usize).unwrap();
+        if line.is_some() {
+            // line already exists
             return false;
         } else {
-            *side = Some(color);
+            *line = Some(color);
         }
         self.board[offset_index].1 += 1;
-        self.result.push((x, y, direction, color));
+        self.result.push((start_pos, direction, color));
         true
     }
 
-    fn remove_side(&mut self, x: usize, y: usize, direction: Direction) -> bool {
-        trace!("remove side ({}, {}, {:?})", x, y, direction);
-        let offset = direction.offset();
-        let offset_index = self.index(
-            (x as isize + offset.0) as usize,
-            (y as isize + offset.1) as usize,
-        );
+    // remove a connected line from the board
+    fn remove_line(&mut self, start_pos: Point, direction: Direction) -> bool {
+        trace!("remove line ({:?}, {:?})", start_pos, direction);
+        let offset_index = self.index(direction.apply_offset(start_pos));
         self.board[offset_index].1 -= 1;
-        let (x, y, direction_inner) = direction.store(x, y);
-        let index = self.index(x, y);
-        if self.sides[index][direction_inner as usize].is_none() {
+        let (store_pos, direction_inner) = direction.store(start_pos);
+        let store_index = self.index(store_pos);
+        if self.lines[store_index][direction_inner as usize].is_none() {
             return false;
         }
-        self.sides[index][direction_inner as usize].take();
+        self.lines[store_index][direction_inner as usize].take();
         self.result.pop();
         true
     }
@@ -274,7 +283,7 @@ fn solve_color(board: &mut Board, color: Color) -> bool {
         info!("solving color {}", color);
         debug!("{:?}", board.board);
         board.board[start_idx].1 += 1;
-        let start = (start_idx % board.width, start_idx / board.width);
+        let start = board.pos(start_idx);
         let res = solve(board, start, color);
         if !res {
             // backtrack to previous color
@@ -302,16 +311,12 @@ fn move_to_next_color(board: &mut Board, color: Color) -> bool {
     }
 }
 
-fn solve(board: &mut Board, point: (usize, usize), color: Color) -> bool {
+fn solve(board: &mut Board, point: (i32, i32), color: Color) -> bool {
     trace!("solving {:?} at {:?}", color, point);
     for direction in Direction::iter() {
-        if board.add_side(point.0, point.1, direction, color) {
-            let offset = direction.offset();
-            let next_point = (
-                (point.0 as isize + offset.0) as usize,
-                (point.1 as isize + offset.1) as usize,
-            );
-            if board.board[board.index(next_point.0, next_point.1)].0 == Symbol::color_end(color) {
+        if board.add_line(point, direction, color) {
+            let next_point = direction.apply_offset(point);
+            if board.board[board.index(next_point)].0 == Symbol::color_end(color) {
                 if color_solved(board, color) {
                     info!("solved color {:?}", color);
                     if move_to_next_color(board, color) {
@@ -326,7 +331,7 @@ fn solve(board: &mut Board, point: (usize, usize), color: Color) -> bool {
                     return true;
                 }
             }
-            board.remove_side(point.0, point.1, direction);
+            board.remove_line(point, direction);
         }
     }
     false
@@ -334,21 +339,16 @@ fn solve(board: &mut Board, point: (usize, usize), color: Color) -> bool {
 
 fn color_solved(board: &Board, color: Color) -> bool {
     let mut board_clone = board.board.iter().map(|s| s.0).collect::<Vec<_>>();
-    for (i, side) in board.sides.iter().enumerate() {
-        for (dir, side_color) in side.iter().enumerate() {
-            if let Some(side_color) = side_color {
-                if *side_color == color {
+    for (i, line) in board.lines.iter().enumerate() {
+        for (dir, line_color) in line.iter().enumerate() {
+            if let Some(line_color) = line_color {
+                if *line_color == color {
                     let direction: Direction = DirectionInner::from(dir as u8).into();
-                    let x = i % board.width;
-                    let y = i / board.width;
-                    let offset = direction.offset();
+                    let pos = board.pos(i);
 
+                    let i2 = board.index(direction.apply_offset(pos));
                     board_clone[i] = Symbol::Empty;
-                    let index = board.index(
-                        (x as isize + offset.0) as usize,
-                        (y as isize + offset.1) as usize,
-                    );
-                    board_clone[index] = Symbol::Empty;
+                    board_clone[i2] = Symbol::Empty;
                 }
             }
         }
@@ -422,14 +422,14 @@ fn main() {
 
     let width = length;
     let height = board.len() / width;
-    let mut sides = Vec::new();
+    let mut lines = Vec::new();
     for _ in 0..board.len() {
-        sides.push([None; 4]);
+        lines.push([None; 4]);
     }
 
     let mut board = Board {
         board: board.into_iter().map(|s| (s, 0)).collect(),
-        sides,
+        lines,
         result: Vec::new(),
         width,
         height,
@@ -439,11 +439,11 @@ fn main() {
     if res {
         info!("solution found");
         debug!("{:?}", board.board);
-        debug!("{:?}", board.sides);
-        for (color, group) in &board.result.iter().group_by(|s| s.3) {
+        debug!("{:?}", board.lines);
+        for (color, group) in &board.result.iter().group_by(|s| s.2) {
             println!("{}:", color);
-            for (x, y, direction, _) in group {
-                println!("{} {} {}", direction, x, y);
+            for (point, direction, _) in group {
+                println!("{} {:?}", direction, point);
             }
         }
     } else {
